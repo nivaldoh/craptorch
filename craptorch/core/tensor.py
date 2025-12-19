@@ -63,7 +63,7 @@ class Tensor:
             return Tensor(self.data * other.data)
         if len(self.shape) == 0 or len(other.shape) == 0:
             return Tensor(self.data * other.data)
-        if len(self.shape >= 2) and len(other.shape >= 2):
+        if len(self.shape) >= 2 and len(other.shape) >= 2:
             if self.shape[-1] != other.shape[-2]:
                 raise ValueError(
                     f"Can't matmul {self.shape} @ {other.shape}"

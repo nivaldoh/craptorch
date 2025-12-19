@@ -1,2 +1,2 @@
 Setup uses tinytorch venv:
- source ../tinytorch/.venv/bin/activate
+source ../tinytorch/.venv/bin/activate

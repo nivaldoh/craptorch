@@ -1,5 +1,5 @@
 from craptorch.core.tensor import Tensor
-from craptorch.core.activations import *
+from craptorch.core.activations import TOLERANCE, Sigmoid
 
 import numpy as np
 
@@ -18,8 +18,9 @@ def test_unit_sigmoid():
 
     x = Tensor([-1000, 1000])  # Extreme values
     result = sigmoid.forward(x)
-    assert np.allclose(result.data[0], 0, atol=TOLERANCE), "sigmoid(-inf) should approach 0"
-    assert np.allclose(result.data[1], 1, atol=TOLERANCE), "sigmoid(+inf) should approach 1"
+
+    assert np.allclose(result.data[0], 0, atol=TOLERANCE), f"sigmoid(-inf) should approach 0, got {result.data[0]}"
+    assert np.allclose(result.data[1], 1, atol=TOLERANCE), f"sigmoid(+inf) should approach 1, got {result.data[1]}"
 
     print("✅ Sigmoid works correctly!")
 

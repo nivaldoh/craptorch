@@ -7,7 +7,8 @@ from craptorch.core.tensor import Tensor
 TOLERANCE = 1e-10  # Small tolerance for floating-point comparisons in tests
 
 # Export only activation classes
-__all__ = ['Sigmoid', 'ReLU', 'Tanh', 'GELU', 'Softmax']
+__all__ = ['Sigmoid', 'ReLU']
+#, 'Tanh', 'GELU', 'Softmax'
 
 class Activation:
     def parameters(self):
@@ -27,7 +28,7 @@ class Sigmoid (Activation):
         """Sigmoid activation: sigma(x) = 1/(1 + e^(-x))"""
         # Clip extreme values to prevent overflow (sigmoid(-500) ~ 0, sigmoid(500) ~ 1)
         # Clipping at |500| ensures exp() stays within float64 range
-        z = np.clip(-x.data, -500, 500)
+        z = np.clip(x.data, -500, 500)
 
         # Different calculation for pos/neg for numerical stability
         result_data = np.zeros_like(z)
@@ -41,4 +42,12 @@ class Sigmoid (Activation):
         return Tensor(result_data)
 
     def backward(self, grad: Tensor):
+        pass
+
+class ReLU (Activation):
+    def forward(self, x: Tensor):
+        v = np.maximum(0, x.data)
+        return Tensor(v)
+    
+    def backward(self, grad:Tensor):
         pass

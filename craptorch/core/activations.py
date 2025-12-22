@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Optional
+from typing import Optional, Any
 
 from craptorch.core.tensor import Tensor
 
@@ -13,13 +13,13 @@ class Activation:
     def parameters(self):
         return []
 
-    def forward(self, x: Tensor):
+    def forward(self, x: Tensor, **kwargs: Any):
         pass
     
     def backward(self, grad: Tensor):
         pass
 
-    def __call__(self, x: Tensor):
+    def __call__(self, x: Tensor, **kwargs: Any):
         return self.forward(x)
 
 class Sigmoid (Activation):
@@ -69,8 +69,18 @@ class GELU(Activation):
         pass
 
 class Softmax(Activation):
-    def forward(self, x: Tensor):
-        pass
+    def forward(self, x: Tensor, dim: int = -1):
+        # subtract max for numerical stability
+        x_max_data = np.max(x.data, axis=dim, keepdims=True)
+        x_max = Tensor(x_max_data)
+        x_shifted = x - x_max
+
+        exp_values = Tensor(np.exp(x_shifted.data), requires_grad=x_shifted.requires_grad)
+
+        exp_sum_data = np.sum(exp_values.data, axis=dim, keepdims=True)
+        exp_sum = Tensor(exp_sum_data, requires_grad=exp_values.requires_grad)
+
+        return exp_values / exp_sum
     
     def backward(self, grad: Tensor):
         pass

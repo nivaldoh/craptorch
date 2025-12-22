@@ -7,8 +7,8 @@ from craptorch.core.tensor import Tensor
 TOLERANCE = 1e-10  # Small tolerance for floating-point comparisons in tests
 
 # Export only activation classes
-__all__ = ['Sigmoid', 'ReLU']
-#, 'Tanh', 'GELU', 'Softmax'
+__all__ = ['Sigmoid', 'ReLU', 'Tanh']
+#, 'GELU', 'Softmax'
 
 class Activation:
     def parameters(self):
@@ -47,6 +47,14 @@ class Sigmoid (Activation):
 class ReLU (Activation):
     def forward(self, x: Tensor):
         v = np.maximum(0, x.data)
+        return Tensor(v)
+    
+    def backward(self, grad:Tensor):
+        pass
+
+class Tanh (Activation):
+    def forward(self, x: Tensor):
+        v = np.tanh(x.data)
         return Tensor(v)
     
     def backward(self, grad:Tensor):

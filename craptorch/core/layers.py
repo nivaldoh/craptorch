@@ -40,11 +40,11 @@ class Linear(Layer):
     def forward(self, x):
         y = x.matmul(self.weight)
         if self.bias is not None:
-            y += bias
+            y += self.bias
         return y
 
     def parameters(self):
-        p = self.weight
+        p = [self.weight]
         if self.bias is not None:
             p.append(self.bias)
         return p

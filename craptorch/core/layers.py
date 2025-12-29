@@ -66,7 +66,7 @@ class Dropout(Layer):
         if self.p == DROPOUT_MAX_PROB:
             return Tensor(np.zeros_like(x.data), requires_grad=x.requires_grad)
 
-        keep_prob = 1.0 - p
+        keep_prob = 1.0 - self.p
 
         mask = np.random.random(x.data.shape) < keep_prob
 

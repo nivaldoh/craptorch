@@ -19,7 +19,7 @@ class Loss():
     def backward(self):
         raise NotImplementedError()
 
-class MSELoss():
+class MSELoss(Loss):
     def forward(self, predictions, targets):
         squared_diffs = (predictions.data - targets.data) ** 2
         mse = np.mean(squared_diffs)
@@ -29,4 +29,24 @@ class MSELoss():
         return self.forward(predictions, targets)
     
     def __backward__(self):
+        pass
+
+class CrossEntropyLoss(Loss):
+    def forward(self, logits: Tensor, targets: Tensor) -> Tensor:
+        log_probs = log_softmax(logits, dim=-1)
+
+        batch_size = logits.shape[0]
+        target_indices = targets.data.astype(int)
+        b = np.arange(batch_size)
+
+        # for each batch, get the probability that was predicted for the class that should've had max prob with high confidence
+        selected_log_probs = log_probs.data[b, target_indices]
+
+        cross_entr = -np.mean(selected_log_probs)
+        return Tensor(cross_entr)
+
+    def __call__(self, logits, targets) -> Tensor:
+        return self.forward(logits, targets)
+
+    def backward(self) -> Tensor:
         pass

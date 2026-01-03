@@ -50,3 +50,22 @@ class CrossEntropyLoss(Loss):
 
     def backward(self) -> Tensor:
         pass
+
+class BinaryCrossEntropy(Loss):
+    def forward(self, predictions: Tensor, targets: Tensor) -> Tensor:
+        clamped_preds = np.clip(predictions, EPSILON, 1-EPSILON)
+
+        log_preds = np.log(clamped_preds)
+        log_complement_preds = np.log(1 - clamped_preds)
+
+        bce_per_sample = -(targets.data * log_preds + (1-targets.data) * log_complement_preds)
+
+        bce_loss = np.mean(bce_per_sample)
+
+        return Tensor(bce_loss)
+
+    def __call__(self, predictions: Tensor, targets: Tensor) -> Tensor:
+        return self.forward(predictions, targets)
+
+    def backward(self):
+        pass

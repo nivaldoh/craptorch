@@ -20,6 +20,10 @@ class Function:
     def apply(self, grad_output):
         raise NotImplementedError("Implemented individually by each function")
 
+##############################
+# Ops
+##############################
+
 class AddBackward(Function):
     def apply(self, grad_output):
         a, b = self.saved_tensors
@@ -206,3 +210,142 @@ class SumBackward(Function):
             return (np.ones_like(tensor.data) * grad_output,)
 
         return None,
+
+##############################
+# Activations
+##############################
+
+class ReLUBackward(Function):
+    def __init__(self, input_tensor):
+        super().__init__(input_tensor)
+
+    def apply(self, grad_output):
+        x = self.saved_tensors
+
+        if isinstance(x, Tensor) and x.requires_grad:
+            relu_grad = (x.data > 0).astype(np.float32)
+            return grad_output * relu_grad,
+
+        return (None,)
+
+class SigmoidBackward(Function):
+    def __init__(self, input_tensor, output_tensor):
+        # store original input to sigmoid
+        super().__init__(input_tensor)
+        # store original output from sigmoid
+        self.output_data = output_tensor.data
+
+    def apply(self, grad_output):
+        x, = self.saved_tensors
+        grad_x = None
+
+        if isinstance(x, Tensor) and x.requires_grad:
+            sigmoid_grad = self.output_data * (1 - self.output_data)
+            return grad_output * sigmoid_grad
+
+        return (None,)
+
+class SofmaxBackward(Function):
+    def __init__(self, input_tensor, output_tensor, dim=-1):
+        super().__init__(input_tensor)
+        self.output_data = output_tensor.data
+        self.dim=dim
+
+    def apply(self, grad_output):
+        tensor, = self.saved_tensors
+
+        if isinstance(tensor, Tensor) and tensor.requires_grad:
+            sum_term = np.sum(grad_output * self.output_data, axis=self.dim, keepdims=True)
+
+            grad_x = self.output_data * (grad_output - sum_term)
+            return (grad_x,)
+        return (None,)
+
+class GeLUBackward(Function):
+    def __init__(self, input_tensor):
+        super().__init__(input_tensor)
+
+    def apply(self, grad_output):
+        tensor, = self.saved_tensors
+
+        if isinstance(tensor, Tensor) and tensor.requires_grad:
+            x = tensor.data
+
+            # derivative approximation
+            sqrt_2_over_pi = np.sqrt(2.0/np.pi)
+            x_cubed = x ** 3
+            tanh_arg = sqrt_2_over_pi * (x + 0.044715 * x_cubed)
+            tanh_out = np.tanh(tanh_arg)
+            sech_squared = 1 - tanh_out ** 2
+
+            d_tanh_arg = sqrt_2_over_pi * (1 + 0.134145 * x ** 2)
+            gelu_grad = 0.5 * (1 + tanh_out) + 0.5 * x * sech_squared * d_tanh_arg
+            
+            return (grad_output * gelu_grad)
+
+        return (None,)
+
+##############################
+# Losses
+##############################
+
+class MSEBackward(Function):
+    def __init__(self, predictions, targets):
+        super().__init__(predictions)
+        self.targets_data = targets.data
+        self.num_samples = np.size(targets.data)
+
+    def apply(self, grad_output):
+        predictions, = self.saved_tensors
+
+        if isinstance(predictions, Tensor) and predictions.requires_grad:
+            grad = 2.0 * (predictions.data - self.targets_data) / self.num_samples
+
+            return grad * grad_output,
+        return None,
+
+class BCEBackward(Function):
+    def __init__(self, predictions, targets):
+        super().__init__(predictions)
+        self.targets_data = targets.data
+        self.num_samples = np.size(targets.data)
+
+    def apply(self, grad_output):
+        predictions, = self.saved_tensors
+
+        if isinstance(predictions, Tensor) and predictions.requires_grad:
+            p = np.clip(predictions.data, EPSILON, 1-EPSILON)
+            y = self.targets.data
+
+            grad = (p-y)/(p*(1-p)*self.num_samples)
+
+            return grad * grad_output
+
+        return None,
+
+class CrossEntropyBackward(Function):
+    def __init__(self, logits, targets):
+        super().__init__(logits)
+        self.targets_data = targets.data.astype(int)
+        self.batch_size = logits.data.shape[0]
+        self.num_classes = logits.data.shape[1]
+
+    def apply(self, grad_output):
+        logits, = self.saved_tensors
+
+        if isinstance(logits, Tensor) and logits.requires_grad:
+            logits_data = logits.data
+            max_logits = np.max(logits_data, axis=1, keepdims=True)
+            exp_logits = np.exp(logits_data - max_logits)
+            softmax = exp_logits/np.sum(exp_logits, axis=1, keepdims=True)
+
+            one_hot = np.zeros((self.batch_size, self.num_classes), dtype=np.float32)
+            one_hot[np.arange(self.batch_size), self.targets_data] = 1.0
+
+            grad = (softmax - one_hot)/self.batch_size
+
+            return grad * grad_output,
+        return None,
+
+def enable_autograd(quiet=False):
+    1

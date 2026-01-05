@@ -348,4 +348,285 @@ class CrossEntropyBackward(Function):
         return None,
 
 def enable_autograd(quiet=False):
-    1
+    if hasattr(Tensor, '_autograd_enabled'):
+        return
+
+    _original_add = Tensor.__add__
+    _original_sub = Tensor.__sub__
+    _original_mul = Tensor.__mul__
+    _original_div = Tensor.__truediv__
+    _original_getitem = Tensor.__getitem__
+
+    _original_matmul = Tensor.matmul
+    _original_transpose = Tensor.transpose
+    _original_reshape = Tensor.reshape
+
+    def tracked_add(self, other):
+        if not isinstance(other, Tensor):
+            other = Tensor(other)
+
+        result = _original_add(self, other)
+
+        if self.requires_grad or (isinstance(other, Tensor) and other.requires_grad):
+            result.requires_grad = True
+            result._grad_fn = AddBackward(self, other)
+
+        return result
+    
+    def tracked_mul(self, other):
+        if not isinstance(other, Tensor):
+            other = Tensor(other)
+
+        result = _original_mul(self, other)
+
+        if self.requires_grad or (isinstance(other, Tensor) and other.requires_grad):
+            result.requires_grad = True
+            result._grad_fn = MulBackward(self, other)
+
+        return result
+
+    def tracked_matmul(self, other):
+        if not isinstance(other, Tensor):
+            other = Tensor(other)
+
+        result = _original_matmul(self, other)
+
+        if self.requires_grad or (isinstance(other, Tensor) and other.requires_grad):
+            result.requires_grad = True
+            result._grad_fn = MatMulBackward(self, other)
+
+        return result
+
+    def tracked_transpose(self, dim0=None, dim1=None):
+        result = _original_transpose(self, dim0, dim1)
+
+        if self.requires_grad:
+            result.requires_grad = True
+            result._grad_fn = TransposeBackward(self, dim0, dim1)
+
+        return result
+
+    def tracked_reshape(self, *shape):
+        original_shape = self.shape
+
+        result = _original_reshape(self, *shape)
+
+        if self.requires_grad:
+            result.requires_grad = True
+            result._grad_fn = ReshapeBackward(self, *shape)
+
+        return result
+
+    def tracked_sub(self, other):
+        if not isinstance(other, Tensor):
+            other = Tensor(other)
+
+        result = _original_sub(self, other)
+
+        if self.requires_grad or (isinstance(other, Tensor) and other.requires_grad):
+            result.requires_grad = True
+            result._grad_fn = SubBackward(self, other)
+
+        return result
+
+    def tracked_div(self, other):
+        if not isinstance(other, Tensor):
+            other = Tensor(other)
+
+        result = _original_div(self, other)
+
+        if self.requires_grad or (isinstance(other, Tensor) and other.requires_grad):
+            result.requires_grad = True
+            result._grad_fn = DivBackward(self, other)
+
+        return result
+
+    def tracked_getitem(self, key):
+        result = _original_getitem(self, key)
+
+        if self.requires_grad:
+            result.requires_grad = True
+            result._grad_fn = SliceBackward(self, key)
+
+        return result
+
+    def sum_op(self, axis=None, keepdims=False):
+        result_data = np.sum(self.data, axis=axis, keepdims=keepdims)
+        result = Tensor(result_data)
+
+        if self.requires_grad:
+            result.requires_grad = True
+            result._grad_fn = SumBackwards(self)
+
+        return result
+
+    def backward(self, gradient=None):
+        if not self.requires_grad:
+            return
+
+        # initialize grad if not provided (for scalar outputs)
+        if gradient is None:
+            if self.data.size == 1:
+                gradient = np.ones_like(self.data)
+            else:
+                raise ValueError("backward() called on non-scalar tensor without gradient arg.")
+
+        # init or accumulate grad
+        if self.grad is None:
+            self.grad = np.zeros_like(self.data)
+
+        # handle broadcasting: sum gradient to match self.data shape
+        if gradient.shape != self.grad.shape:
+            # remove extra leading dims like batch size
+            while gradient.ndim > self.grad.ndim:
+                gradient = gradient.sum(axis=0)
+            
+            # sum over dimensions that were size-1 in the original tensor
+            # e.g. broadcast bias to the entire batch
+            for i in range(gradient.ndim):
+                if self.grad.shape[i] == 1 and gradient.shape[i] != 1:
+                    gradient = gradient.sum(axis=i, keepdims=True)
+
+        self.grad += gradient
+
+        # propagate grads through computation graph
+        # grad_fn is set by autograd enhancement when tensor is created from an operation
+        grad_fn = getattr(self, "_grad_fn", None)
+        if grad_fn is not None:
+            grads = grad_fn.apply(gradient)
+
+            # recursively call backward on parent tensors
+            for tensor, grad in zip(grad_fn.saved_tensors, grads):
+                if isinstance(tensor, Tensor) and tensor.requires_grad and grad is not None:
+                    tensor.backward(grad)
+
+    def zero_grad():
+        self.grad = None
+
+    # install extended ops
+    Tensor.__add__ = tracked_add
+    Tensor.__sub__ = tracked_sub
+    Tensor.__mul__ = tracked_mul
+    Tensor.__truediv__ = tracked_div
+    Tensor.__getitem__ = tracked_getitem
+    Tensor.matmul = tracked_matmul
+    Tensor.transpose = tracked_transpose
+    Tensor.reshape = tracked_reshape
+    Tensor.sum = sum_op
+    Tensor.backward = backward
+    Tensor.zero_grad = zero_grad
+
+    from tinytorch.core.activations import Sigmoid, ReLU, Softmax, GELU
+    from tinytorch.core.losses import BinaryCrossEntropyLoss, MSELoss, CrossEntropyLoss, EPSILON
+
+    _original_sigmoid_forward = Sigmoid.forward
+    _original_relu_forward = ReLU.forward
+    _original_softmax_forward = Softmax.forward
+    _original_gelu_forward = GELU.forward
+    _original_bce_forward = BinaryCrossEntropyLoss.forward
+    _original_mse_forward = MSELoss.forward
+    _original_ce_forward = CrossEntropyLoss.forward
+
+    def tracked_sigmoid_forward(self, x):
+        result_data = 1.0/(1.0 + np.exp(-x.data))
+        result = Tensor(result_data)
+
+        if x.requires_grad:
+            result.requires_grad = True
+        result._grad_fn = SigmoidBackward(x, result)
+
+        return result
+
+    def tracked_relu_forward(self, x):
+        result_data = np.maximum(0, x.data)
+        result = Tensor(result_data)
+
+        if x.requires_grad():
+            result.requires_grad = True
+            result._grad_fn = ReLUBackward(x)
+
+        return result
+
+    def tracked_softmax_forward(self, x, dim=-1):
+        result = _original_softmax_forward(self, x, dim=dim)
+
+        if x.requires_grad:
+            result.requires_grad = True
+            result._grad_fn = SoftmaxBackward(x, result, dim)
+
+        return result
+
+    def tracked_gelu_forward(self, x):
+        result = self._original_gelu_forward(x)
+
+        if x.requires_grad:
+            result.requires_grad = True
+            result._grad_fn = GeLUBackward(x)
+        
+        return result
+
+    def tracked_bce_forward(self, predictions, targets):
+        clamped_preds = np.clip(predictions, EPSILON, 1-EPSILON)
+        log_preds = np.log(clamped_preds)
+        log_one_minus_preds = np.log(1 - clamped_preds)
+        bce_per_sample = -(targets.data * logs_preds + (1-targets.data)*log_one_minus_preds)
+        bce_loss = np.mean(bce_per_sample)
+
+        result = Tensor(bce_loss)
+
+        if predictions.requires_grad:
+            result.requires_grad = True
+            result._grad_fn = BCEBacward(predictions, targets)
+
+        return result
+
+    def tracked_mse_forward(self, predictions, targets):
+            diff = predictions.data - targets.data
+            squared_diff = diff ** 2
+            mse = np.mean(squared_diff)
+
+            result = Tensor(mse)
+
+            if predictions.requires_grad:
+                result.requires_grad = True
+                result._grad_fn = MSEBackward(predictions, targets)
+
+            return result
+
+    def tracked_ce_forward(self, logits, targets):
+        from craptorch.core.losses import log_softmax
+
+        log_probs = log_softmax(logits, dim=-1)
+
+        batch_size = logits.shape[0]
+        target_indices = target.data.astype(int)
+        selected_log_probs = log_probs.data[np.arange(batch_size), target_indices]
+
+        ce_loss = -np.mean(selected_log_probs)
+
+        result = Tensor(ce_loss)
+
+        if logits.requires_grad:
+            result.requires_grad = True
+            result._grad_fn = CrossEntropyBackward(logits, targets)
+
+        return result
+
+    # Install extended activations and losses
+    Sigmoid.forward = tracked_sigmoid_forward
+    ReLU.forward = tracked_relu_forward
+    Softmax.forward = tracked_softmax_forward
+    GELU.forward = tracked_gelu_forward
+    BinaryCrossEntropyLoss.forward = tracked_bce_forward
+    MSELoss.forward = tracked_mse_forward
+    CrossEntropyLoss.forward = tracked_ce_forward
+
+    Tensor._autograd_enabled = True
+
+    if not quiet:
+        print('autograd enabled')
+
+    # Auto-enable when module is imported
+    # Always quiet to avoid cluttering user imports
+    import os
+    enable_autograd(quiet=True)

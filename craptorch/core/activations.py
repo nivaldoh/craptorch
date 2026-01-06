@@ -61,7 +61,8 @@ class Tanh (Activation):
 
 class GELU(Activation):
     def forward(self, x: Tensor):
-        sig = 1.0/(1.0 + np.exp(-1.702 * x.data))
+        z = np.clip(-1.702 * x.data, -500, 500)
+        sig = 1.0/(1.0 + np.exp(z))
         res = sig * x.data
         return Tensor(res)
     

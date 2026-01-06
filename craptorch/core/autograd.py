@@ -531,8 +531,7 @@ def enable_autograd(quiet=False):
     _original_ce_forward = CrossEntropyLoss.forward
 
     def tracked_sigmoid_forward(self, x):
-        result_data = 1.0/(1.0 + np.exp(-x.data))
-        result = Tensor(result_data)
+        result = _original_sigmoid_forward(self, x)
 
         if x.requires_grad:
             result.requires_grad = True

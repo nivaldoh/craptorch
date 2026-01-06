@@ -4,6 +4,7 @@ import sys
 import os
 
 from craptorch.core.tensor import Tensor
+from craptorch.core.losses import EPSILON
 
 class Function:
     def __init__(self, *tensors):
@@ -220,7 +221,7 @@ class ReLUBackward(Function):
         super().__init__(input_tensor)
 
     def apply(self, grad_output):
-        x = self.saved_tensors
+        x, = self.saved_tensors
 
         if isinstance(x, Tensor) and x.requires_grad:
             relu_grad = (x.data > 0).astype(np.float32)
@@ -241,11 +242,11 @@ class SigmoidBackward(Function):
 
         if isinstance(x, Tensor) and x.requires_grad:
             sigmoid_grad = self.output_data * (1 - self.output_data)
-            return grad_output * sigmoid_grad
+            return grad_output * sigmoid_grad,
 
         return (None,)
 
-class SofmaxBackward(Function):
+class SoftmaxBackward(Function):
     def __init__(self, input_tensor, output_tensor, dim=-1):
         super().__init__(input_tensor)
         self.output_data = output_tensor.data
@@ -281,7 +282,7 @@ class GeLUBackward(Function):
             d_tanh_arg = sqrt_2_over_pi * (1 + 0.134145 * x ** 2)
             gelu_grad = 0.5 * (1 + tanh_out) + 0.5 * x * sech_squared * d_tanh_arg
             
-            return (grad_output * gelu_grad)
+            return (grad_output * gelu_grad,)
 
         return (None,)
 
@@ -315,7 +316,7 @@ class BCEBackward(Function):
 
         if isinstance(predictions, Tensor) and predictions.requires_grad:
             p = np.clip(predictions.data, EPSILON, 1-EPSILON)
-            y = self.targets.data
+            y = self.targets_data
 
             grad = (p-y)/(p*(1-p)*self.num_samples)
 
@@ -413,7 +414,7 @@ def enable_autograd(quiet=False):
 
         if self.requires_grad:
             result.requires_grad = True
-            result._grad_fn = ReshapeBackward(self, *shape)
+            result._grad_fn = ReshapeBackward(self, original_shape)
 
         return result
 
@@ -456,7 +457,7 @@ def enable_autograd(quiet=False):
 
         if self.requires_grad:
             result.requires_grad = True
-            result._grad_fn = SumBackwards(self)
+            result._grad_fn = SumBackward(self)
 
         return result
 
@@ -499,8 +500,10 @@ def enable_autograd(quiet=False):
             for tensor, grad in zip(grad_fn.saved_tensors, grads):
                 if isinstance(tensor, Tensor) and tensor.requires_grad and grad is not None:
                     tensor.backward(grad)
+        else:
+            print('no grad_fn')
 
-    def zero_grad():
+    def zero_grad(self):
         self.grad = None
 
     # install extended ops
@@ -516,8 +519,8 @@ def enable_autograd(quiet=False):
     Tensor.backward = backward
     Tensor.zero_grad = zero_grad
 
-    from tinytorch.core.activations import Sigmoid, ReLU, Softmax, GELU
-    from tinytorch.core.losses import BinaryCrossEntropyLoss, MSELoss, CrossEntropyLoss, EPSILON
+    from craptorch.core.activations import Sigmoid, ReLU, Softmax, GELU
+    from craptorch.core.losses import BinaryCrossEntropyLoss, MSELoss, CrossEntropyLoss
 
     _original_sigmoid_forward = Sigmoid.forward
     _original_relu_forward = ReLU.forward
@@ -541,7 +544,7 @@ def enable_autograd(quiet=False):
         result_data = np.maximum(0, x.data)
         result = Tensor(result_data)
 
-        if x.requires_grad():
+        if x.requires_grad:
             result.requires_grad = True
             result._grad_fn = ReLUBackward(x)
 
@@ -557,7 +560,7 @@ def enable_autograd(quiet=False):
         return result
 
     def tracked_gelu_forward(self, x):
-        result = self._original_gelu_forward(x)
+        result = _original_gelu_forward(self, x)
 
         if x.requires_grad:
             result.requires_grad = True
@@ -566,32 +569,32 @@ def enable_autograd(quiet=False):
         return result
 
     def tracked_bce_forward(self, predictions, targets):
-        clamped_preds = np.clip(predictions, EPSILON, 1-EPSILON)
+        clamped_preds = np.clip(predictions.data, EPSILON, 1-EPSILON)
         log_preds = np.log(clamped_preds)
         log_one_minus_preds = np.log(1 - clamped_preds)
-        bce_per_sample = -(targets.data * logs_preds + (1-targets.data)*log_one_minus_preds)
+        bce_per_sample = -(targets.data * log_preds + (1-targets.data)*log_one_minus_preds)
         bce_loss = np.mean(bce_per_sample)
 
         result = Tensor(bce_loss)
 
         if predictions.requires_grad:
             result.requires_grad = True
-            result._grad_fn = BCEBacward(predictions, targets)
+            result._grad_fn = BCEBackward(predictions, targets)
 
         return result
 
     def tracked_mse_forward(self, predictions, targets):
-            diff = predictions.data - targets.data
-            squared_diff = diff ** 2
-            mse = np.mean(squared_diff)
+        diff = predictions.data - targets.data
+        squared_diff = diff ** 2
+        mse = np.mean(squared_diff)
 
-            result = Tensor(mse)
+        result = Tensor(mse)
 
-            if predictions.requires_grad:
-                result.requires_grad = True
-                result._grad_fn = MSEBackward(predictions, targets)
+        if predictions.requires_grad:
+            result.requires_grad = True
+            result._grad_fn = MSEBackward(predictions, targets)
 
-            return result
+        return result
 
     def tracked_ce_forward(self, logits, targets):
         from craptorch.core.losses import log_softmax
@@ -599,7 +602,7 @@ def enable_autograd(quiet=False):
         log_probs = log_softmax(logits, dim=-1)
 
         batch_size = logits.shape[0]
-        target_indices = target.data.astype(int)
+        target_indices = targets.data.astype(int)
         selected_log_probs = log_probs.data[np.arange(batch_size), target_indices]
 
         ce_loss = -np.mean(selected_log_probs)
@@ -626,7 +629,7 @@ def enable_autograd(quiet=False):
     if not quiet:
         print('autograd enabled')
 
-    # Auto-enable when module is imported
-    # Always quiet to avoid cluttering user imports
-    import os
-    enable_autograd(quiet=True)
+# Auto-enable when module is imported
+# Always quiet to avoid cluttering user imports
+import os
+enable_autograd(quiet=True)

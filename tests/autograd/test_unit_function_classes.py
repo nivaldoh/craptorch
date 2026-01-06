@@ -25,5 +25,7 @@ def test_unit_function_classes():
     assert grad_a.shape == a_mat.shape
     assert grad_b.shape == b_mat.shape
 
+    # TODO: test all functions + activations + losses
+
 if __name__ == "__main__":
     test_unit_function_classes()

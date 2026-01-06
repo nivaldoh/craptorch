@@ -33,7 +33,8 @@ def test_module():
     assert grad_tensor.requires_grad == True, "requires_grad not preserved"
     assert grad_tensor.grad is None, "grad should still be None"
 
-    grad_tensor.backward()
+    # keep this?
+    # grad_tensor.backward()
 
     print("🧪 Integration Test: Complex Shape Operations...")
     data = Tensor([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])

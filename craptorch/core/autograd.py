@@ -461,7 +461,12 @@ def enable_autograd(quiet=False):
 
         return result
 
-    def backward(self, gradient=None):
+    def backward(self, gradient=None, trace=False, _trace=None):
+        top_level = False
+        if trace and _trace is None:
+            _trace = {"order": [], "grads": {}}
+            top_level = True
+
         if not self.requires_grad:
             return
 
@@ -488,6 +493,10 @@ def enable_autograd(quiet=False):
                 if self.grad.shape[i] == 1 and gradient.shape[i] != 1:
                     gradient = gradient.sum(axis=i, keepdims=True)
 
+        if trace:
+            _trace["order"].append({"tensor": self, "grad": gradient.copy()})
+            _trace["grads"][id(self)] = gradient.copy()
+
         self.grad += gradient
 
         # propagate grads through computation graph
@@ -499,9 +508,10 @@ def enable_autograd(quiet=False):
             # recursively call backward on parent tensors
             for tensor, grad in zip(grad_fn.saved_tensors, grads):
                 if isinstance(tensor, Tensor) and tensor.requires_grad and grad is not None:
-                    tensor.backward(grad)
-        else:
-            print('no grad_fn')
+                    tensor.backward(grad, trace=trace, _trace=_trace)
+
+        if top_level:
+            return _trace
 
     def zero_grad(self):
         self.grad = None

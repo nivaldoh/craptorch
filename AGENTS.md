@@ -9,6 +9,7 @@ This repository implements a minimal PyTorch-like core in pure Python with NumPy
   - `autograd.py` (autograd primitives)
   - `layers.py`, `activations.py`, `losses.py` (NN components)
 - `tests/`: pytest suite grouped by domain (`tests/tensor`, `tests/activations`, `tests/layers`, `tests/losses`, `tests/autograd`).
+- `scripts/`: useful entrypoint scripts that may have standalone functionality.
 
 ## Build, Test, and Development Commands
 - `pip install -r requirements.txt`: install NumPy + pytest tooling.

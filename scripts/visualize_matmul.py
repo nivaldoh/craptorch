@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import math
 import os
 import sys
 
@@ -10,6 +11,18 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 from craptorch.core.tensor import Tensor
+
+
+def ensure_matplotlib():
+    try:
+        import matplotlib.pyplot as plt
+        from matplotlib import patches
+    except ImportError as exc:
+        raise SystemExit(
+            "matplotlib is required for visualization. Install it with:\n"
+            "  pip install -r requirements-viz.txt"
+        ) from exc
+    return plt, patches
 
 
 def parse_matrix(text):
@@ -40,6 +53,13 @@ def format_value(value, precision):
     if abs(val - rounded) < 1e-8:
         return str(int(rounded))
     return f"{val:.{precision}g}"
+
+
+def split_output_path(output):
+    base, ext = os.path.splitext(output)
+    if not ext:
+        return output, ".png"
+    return base, ext
 
 
 def annotate_matrix(ax, data, precision, show_numbers=True):
@@ -80,34 +100,50 @@ def build_text_panel(a, b, i, j, precision):
         "",
         f"A row {i}: [{', '.join(format_value(v, precision) for v in a_row)}]",
         f"B col {j}: [{', '.join(format_value(v, precision) for v in b_col)}]",
+        "",
+        f"Row combo: C[{i},:] = sum_k A[{i},k] * B[k,:]",
+        f"Col combo: C[:,{j}] = sum_k A[:,k] * B[k,{j}]",
     ]
     return "\n".join(lines)
 
 
-def visualize(a, b, cell, output, show, cmap, precision, show_numbers):
-    try:
-        import matplotlib.pyplot as plt
-        from matplotlib import patches
-    except ImportError as exc:
-        raise SystemExit(
-            "matplotlib is required for visualization. Install it with:\n"
-            "  pip install -r requirements-viz.txt"
-        ) from exc
+def plot_row_combo(ax, a, b, c, row_idx):
+    cols = np.arange(b.shape[1])
+    ax.axhline(0, color="gray", linewidth=0.6)
+    for k in range(a.shape[1]):
+        contrib = a[row_idx, k] * b[k, :]
+        ax.plot(cols, contrib, marker="o", alpha=0.6, label=f"k={k}")
+    ax.plot(cols, c[row_idx, :], marker="o", color="black", linewidth=2, label="sum")
+    ax.set_title(f"C[{row_idx},:] from scaled B rows")
+    ax.set_xlabel("col")
+    ax.set_ylabel("value")
+    if a.shape[1] <= 8:
+        ax.legend(fontsize=8, frameon=False, ncol=2)
+    ax.grid(True, alpha=0.3)
 
-    if a.ndim != 2 or b.ndim != 2:
-        raise ValueError("Only 2D matrices are supported.")
-    if a.shape[1] != b.shape[0]:
-        raise ValueError(f"Incompatible shapes: {a.shape} @ {b.shape}")
 
-    tensor_c = Tensor(a).matmul(Tensor(b))
-    c = tensor_c.data
+def plot_col_combo(ax, a, b, c, col_idx):
+    rows = np.arange(a.shape[0])
+    ax.axhline(0, color="gray", linewidth=0.6)
+    for k in range(a.shape[1]):
+        contrib = a[:, k] * b[k, col_idx]
+        ax.plot(rows, contrib, marker="o", alpha=0.6, label=f"k={k}")
+    ax.plot(rows, c[:, col_idx], marker="o", color="black", linewidth=2, label="sum")
+    ax.set_title(f"C[:,{col_idx}] from scaled A cols")
+    ax.set_xlabel("row")
+    ax.set_ylabel("value")
+    if a.shape[1] <= 8:
+        ax.legend(fontsize=8, frameon=False, ncol=2)
+    ax.grid(True, alpha=0.3)
 
+
+def render_overview(a, b, c, cell, output, cmap, precision, show_numbers):
+    plt, patches = ensure_matplotlib()
     i, j = cell
-    if not (0 <= i < c.shape[0] and 0 <= j < c.shape[1]):
-        raise ValueError(f"Cell {cell} is out of bounds for output shape {c.shape}.")
 
-    fig, axes = plt.subplots(2, 2, figsize=(10, 8), constrained_layout=True)
-    ax_a, ax_b, ax_c, ax_text = axes.flat
+    fig, axes = plt.subplots(2, 3, figsize=(13, 9), constrained_layout=True)
+    ax_a, ax_b, ax_c = axes[0]
+    ax_row, ax_col, ax_text = axes[1]
 
     im_a = ax_a.imshow(a, cmap=cmap)
     ax_a.set_title(f"A {a.shape}")
@@ -151,6 +187,9 @@ def visualize(a, b, cell, output, show, cmap, precision, show_numbers):
         )
     )
 
+    plot_row_combo(ax_row, a, b, c, i)
+    plot_col_combo(ax_col, a, b, c, j)
+
     ax_text.axis("off")
     text = build_text_panel(a, b, i, j, precision)
     ax_text.text(
@@ -171,9 +210,100 @@ def visualize(a, b, cell, output, show, cmap, precision, show_numbers):
         )
 
     fig.savefig(output, dpi=150)
-    if show:
-        plt.show()
-    plt.close(fig)
+    return fig
+
+
+def render_outer_products(a, b, c, output, cmap, precision, show_numbers, max_terms):
+    plt, _ = ensure_matplotlib()
+    shared = a.shape[1]
+    if max_terms is not None and shared > max_terms:
+        return None
+
+    outer_mats = [np.outer(a[:, k], b[k, :]) for k in range(shared)]
+    mats = outer_mats + [c]
+
+    vmin = min(mat.min() for mat in mats)
+    vmax = max(mat.max() for mat in mats)
+
+    panels = len(mats)
+    cols = min(3, panels)
+    rows = int(math.ceil(panels / cols))
+    fig, axes = plt.subplots(rows, cols, figsize=(4 * cols, 3 * rows), constrained_layout=True)
+    if not isinstance(axes, np.ndarray):
+        axes = np.array([axes])
+    axes = axes.flatten()
+
+    for idx, mat in enumerate(outer_mats):
+        ax = axes[idx]
+        im = ax.imshow(mat, cmap=cmap, vmin=vmin, vmax=vmax)
+        ax.set_title(f"k={idx}: outer(A[:,{idx}], B[{idx},:])")
+        annotate_matrix(ax, mat, precision, show_numbers)
+        im.set_clim(vmin, vmax)
+
+    sum_ax = axes[len(outer_mats)]
+    im_sum = sum_ax.imshow(c, cmap=cmap, vmin=vmin, vmax=vmax)
+    sum_ax.set_title("sum = C")
+    annotate_matrix(sum_ax, c, precision, show_numbers)
+    im_sum.set_clim(vmin, vmax)
+
+    for ax in axes[len(mats):]:
+        ax.axis("off")
+
+    fig.savefig(output, dpi=150)
+    return fig
+
+
+def transform_points(points, matrix):
+    return points @ matrix.T
+
+
+def render_transform_view(a, b, c, output):
+    plt, _ = ensure_matplotlib()
+    grid_vals = np.linspace(-1, 1, 5)
+    line_vals = np.linspace(-1, 1, 80)
+    lines = []
+    for x in grid_vals:
+        lines.append(np.column_stack([np.full_like(line_vals, x), line_vals]))
+    for y in grid_vals:
+        lines.append(np.column_stack([line_vals, np.full_like(line_vals, y)]))
+
+    mats = {
+        "Input (I)": np.eye(2, dtype=np.float32),
+        "After B": b,
+        "After A": a,
+        "After A @ B": c,
+    }
+
+    all_points = []
+    for mat in mats.values():
+        for line in lines:
+            all_points.append(transform_points(line, mat))
+        all_points.append(transform_points(np.array([[1, 0], [0, 1]], dtype=np.float32), mat))
+
+    stacked = np.vstack(all_points)
+    pad = 0.2
+    x_min, x_max = stacked[:, 0].min() - pad, stacked[:, 0].max() + pad
+    y_min, y_max = stacked[:, 1].min() - pad, stacked[:, 1].max() + pad
+
+    fig, axes = plt.subplots(2, 2, figsize=(8, 8), constrained_layout=True)
+    axes = axes.flatten()
+    for ax, (title, mat) in zip(axes, mats.items()):
+        for line in lines:
+            transformed = transform_points(line, mat)
+            ax.plot(transformed[:, 0], transformed[:, 1], color="lightgray", linewidth=0.8)
+        e1 = mat @ np.array([1, 0], dtype=np.float32)
+        e2 = mat @ np.array([0, 1], dtype=np.float32)
+        ax.arrow(0, 0, e1[0], e1[1], color="tab:red", width=0.01, length_includes_head=True)
+        ax.arrow(0, 0, e2[0], e2[1], color="tab:green", width=0.01, length_includes_head=True)
+        ax.axhline(0, color="black", linewidth=0.8)
+        ax.axvline(0, color="black", linewidth=0.8)
+        ax.set_title(title)
+        ax.set_aspect("equal", adjustable="box")
+        ax.set_xlim(x_min, x_max)
+        ax.set_ylim(y_min, y_max)
+
+    fig.savefig(output, dpi=150)
+    return fig
 
 
 def main():
@@ -220,6 +350,17 @@ def main():
         "--cell",
         default="0,0",
         help="Focused output cell as row,col (default: 0,0).",
+    )
+    parser.add_argument(
+        "--views",
+        default="overview,outer,transform",
+        help="Comma-separated views: overview,outer,transform.",
+    )
+    parser.add_argument(
+        "--max-outer-terms",
+        type=int,
+        default=6,
+        help="Max shared-dim terms to show in the outer-product view.",
     )
     parser.add_argument(
         "--output",
@@ -276,22 +417,83 @@ def main():
     if a.shape[1] != b.shape[0]:
         raise SystemExit(f"Incompatible shapes: {a.shape} @ {b.shape}")
 
+    tensor_c = Tensor(a).matmul(Tensor(b))
+    c = tensor_c.data
+
     cell_parts = args.cell.split(",")
     if len(cell_parts) != 2:
         raise SystemExit("--cell must be formatted as row,col.")
     cell = (int(cell_parts[0]), int(cell_parts[1]))
+    if not (0 <= cell[0] < c.shape[0] and 0 <= cell[1] < c.shape[1]):
+        raise SystemExit(f"Cell {cell} is out of bounds for output shape {c.shape}.")
 
-    visualize(
-        a,
-        b,
-        cell,
-        args.output,
-        args.show,
-        args.cmap,
-        args.precision,
-        not args.no_annot,
-    )
-    print(f"Wrote {args.output}")
+    views = {view.strip() for view in args.views.split(",") if view.strip()}
+    valid_views = {"overview", "outer", "transform"}
+    unknown = views - valid_views
+    if unknown:
+        raise SystemExit(f"Unknown views: {', '.join(sorted(unknown))}")
+
+    base, ext = split_output_path(args.output)
+    outputs = []
+    figures = []
+
+    if "overview" in views:
+        overview_path = f"{base}{ext}"
+        fig = render_overview(
+            a,
+            b,
+            c,
+            cell,
+            overview_path,
+            args.cmap,
+            args.precision,
+            not args.no_annot,
+        )
+        outputs.append(overview_path)
+        figures.append(fig)
+
+    if "outer" in views:
+        if args.max_outer_terms is not None and a.shape[1] > args.max_outer_terms:
+            print(
+                f"Skipped outer view: shared dim {a.shape[1]} "
+                f"> max {args.max_outer_terms}."
+            )
+        else:
+            outer_path = f"{base}_outer{ext}"
+            fig = render_outer_products(
+                a,
+                b,
+                c,
+                outer_path,
+                args.cmap,
+                args.precision,
+                not args.no_annot,
+                args.max_outer_terms,
+            )
+            if fig is not None:
+                outputs.append(outer_path)
+                figures.append(fig)
+
+    if "transform" in views:
+        if a.shape == (2, 2) and b.shape == (2, 2):
+            transform_path = f"{base}_transform{ext}"
+            fig = render_transform_view(a, b, c, transform_path)
+            outputs.append(transform_path)
+            figures.append(fig)
+        else:
+            print("Skipped transform view: only available for 2x2 matrices.")
+
+    if outputs:
+        for path in outputs:
+            print(f"Wrote {path}")
+
+    if args.show and figures:
+        plt, _ = ensure_matplotlib()
+        plt.show()
+    if figures:
+        plt, _ = ensure_matplotlib()
+        for fig in figures:
+            plt.close(fig)
 
 
 if __name__ == "__main__":

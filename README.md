@@ -17,7 +17,12 @@ sudo apt install graphviz
 
 # Matmul visualization:
 
+## Setup:
+pip install -r requirements-viz.txt
+
 ## Execution:
-- Default example: python scripts/visualize_matmul.py --output mnt/c/users/niv/desktop/matmul.png
+- Default example (overview + extra views): python scripts/visualize_matmul.py --output mnt/c/users/niv/desktop/matmul.png
 - Custom matrices: python scripts/visualize_matmul.py --a "1 2; 3 4" --b "5 6; 7 8" --cell 1,0 --output mnt/c/users/niv/desktop/matmul.png
 - Random matrices: python scripts/visualize_matmul.py --a-shape 2x3 --b-shape 3x2 --seed 7 --output mnt/c/users/niv/desktop/matmul.png
+- Overview only: python scripts/visualize_matmul.py --views overview --output mnt/c/users/niv/desktop/matmul.png
+- Extra outputs use suffixes like _outer and _transform.

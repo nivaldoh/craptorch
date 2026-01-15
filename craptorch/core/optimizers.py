@@ -29,3 +29,61 @@ class Optimizer:
 
     def step(self):
         raise NotImplementedError('subclasses must implement step')
+
+class SGD(Optimizer):
+    def __init__(self, params: List[Tensor], lr: float = DEFAULT_LEARNING_RATE_SGD, momentum : float = 0.0, weight_decay: float = 0.0):
+        super().__init__(params)
+
+        self.lr = lr
+        self.momentum = momentum
+        self.weight_decay = weight_decay
+
+        # Initialize momentum buffers (created lazily)
+        self.momentum_buffers = [None for _ in self.params]
+
+    def has_momentum(self) -> bool:
+        return self.momentum > 0
+
+    def get_momentum_state(self) -> Optional[List]:
+        """Get momentum buffers for checkpointing."""
+        if not self.has_momentum():
+            return None
+        return [buf.copy() if buf is not None else None
+            for buf in self.momentum_buffers]
+
+    def set_momentum_state(self, state:Optional[List]) -> None:
+        """Restore momentum buffers for checkpointing."""
+        if state is None or not self.has_momentum():
+            return
+
+        if len(state) != (self.momentum_buffers):
+            raise ValueError('State len doesnt match optimizer params')
+
+        for i, buf in enumerate(state):
+            if buf is not None:
+                self.momentum_buffers[i] = buf.copy()
+
+    def step(self):
+        for i,param in enumerate(self.params):
+            if param.grad is None:
+                continue
+
+            grad = param.grad
+            if isinstance(grad, Tensor):
+                grad_data = grad.data
+            else:
+                grad_data = grad
+
+            if self.weight_decay != 0:
+                grad_data = grad_data + self.weight_decay * param.data
+
+            if self.momentum != 0:
+                if self.momentum_buffers[i] is None:
+                    self.momentum_buffers[i] = np.zeros_like(param.data)
+                
+                self.momentum_buffers[i] = self.momentum * self.momentum_buffers[i] * grad.data
+                grad_data = self.momentum_buffers[i]
+
+            param.data = param.data - self.lr * grad_data
+
+        self.step_count += 1

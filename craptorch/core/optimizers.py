@@ -87,3 +87,48 @@ class SGD(Optimizer):
             param.data = param.data - self.lr * grad_data
 
         self.step_count += 1
+
+class Adam(Optimizer):
+    def __init__(self, params: List[Tensor], lr: float = DEFAULT_LEARNING_RATE_ADAM,
+        betas: tuple = (DEFAULT_BETA1, DEFAULT_BETA2), eps: float = DEFAULT_EPS, weight_decay: float = 0.0):
+        super().__init__(params)
+
+        self.lr = lr
+        self.beta1, self.beta2 = betas
+        self.eps = eps
+        self.weight_decay = weight_decay
+
+        self.m_buffers = [None for _ in self.params] # mean
+        self.v_buffers = [None for _ in self.params] # variance
+
+    def step(self):
+        self.step_count += 1
+
+        for i,param in enumerate(self.params):
+            if param.grad is None:
+                continue
+
+            grad = param.grad
+            if isinstance(grad, Tensor):
+                grad_data = grad.data
+            else:
+                grad_data = grad
+
+            if self.weight_decay != 0:
+                grad_data = grad_data + self.weight_decay * param.data
+
+            if self.m_buffers[i] is None:
+                self.m_buffers[i] = np.zeros_like(param.data)
+                self.v_buffers[i] = np.zeros_like(param.data)
+
+            self.m_buffers[i] = self.beta1 * self.m_buffers[i] + (1-self.beta1) * grad_data
+
+            self.v_buffers[i] = self.beta2 * self.v_buffers[i] + (1-self.beta2) * (grad_data ** 2)
+
+            bias_correction1 = 1 - self.beta1 ** self.step_count
+            bias_correction2 = 1 - self.beta2 ** self.step_count
+
+            m_hat = self.m_buffers[i] / bias_correction1
+            v_hat = self.v_buffers[i] / bias_correction2
+
+            param.data = param.data - self.lr * m_hat/(np.sqrt(v_hat) + self.eps)

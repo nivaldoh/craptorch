@@ -81,7 +81,7 @@ class SGD(Optimizer):
                 if self.momentum_buffers[i] is None:
                     self.momentum_buffers[i] = np.zeros_like(param.data)
                 
-                self.momentum_buffers[i] = self.momentum * self.momentum_buffers[i] * grad.data
+                self.momentum_buffers[i] = self.momentum * self.momentum_buffers[i] + grad.data
                 grad_data = self.momentum_buffers[i]
 
             param.data = param.data - self.lr * grad_data

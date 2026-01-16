@@ -135,7 +135,7 @@ class Adam(Optimizer):
 
 class AdamW(Optimizer):
     def __init__(self, params: List[Tensor], lr: float = DEFAULT_LEARNING_RATE_ADAM, betas: tuple = (DEFAULT_BETA1, DEFAULT_BETA2), eps: float = DEFAULT_EPS, weight_decay: float = DEFAULT_WEIGHT_DECAY_ADAMW):
-        super().__init(params)
+        super().__init__(params)
 
         self.lr = lr
         self.beta1, self.beta2 = betas

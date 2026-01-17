@@ -11,6 +11,7 @@ This repository implements a minimal PyTorch-like core in pure Python with NumPy
   - `activations.py`
   - `losses.py`
   - `optimizers.py`
+  - `training.py`
 - `tests/`: pytest suite grouped by domain (e.g. `tests/tensor`, `tests/activations`, etc).
 - `scripts/`: useful standalone scripts.
 

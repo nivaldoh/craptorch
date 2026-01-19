@@ -27,3 +27,29 @@ class CosineSchedule:
 
         cosine_factor = (1 + np.cos(np.pi * epoch / self.total_epochs)) / 2
         return self.min_lr + (self.max_lr - self.min_lr) * cosine_factor
+
+def clip_grad_norm(parameters: List, max_norm: float = 1.0) -> float:
+    if not parameters:
+        return 0.0
+    
+    total_norm = 0.0
+    for param in parameters:
+        if param.grad is not None:
+            if isinstance(param.grad, np.ndarray):
+                grad_data = param.grad
+            else:
+                grad_data = param.grad.data
+            total_norm += np.sum(grad_data ** 2)
+
+    total_norm = np.sqrt(total_norm)
+
+    if total_norm > max_norm:
+        clip_coef = max_norm/total_norm
+        for param in parameters:
+            if param.grad is not None:
+                if isinstance(param.grad, np.ndarray):
+                    param.grad = param.grad * clip_coef
+                else:
+                    param.grad.data = param.grad.data * clip_coef
+    
+    return float(total_norm)
